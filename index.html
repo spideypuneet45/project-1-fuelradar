@@ -244,8 +244,8 @@ function mm(t){$("mmsg").textContent=t;$("tmsg").textContent=t}
 function onpos(p){
  var n=[p.coords.latitude,p.coords.longitude];
  if(cur){var d=hv(cur,n);if(d>8&&d<500){S.lvl=Math.max(0,S.lvl-d/1000/(eff()*sf(es()))/S.cap*100);$("lvl").value=Math.round(S.lvl)}}
- cur=n;
- if(tgt&&!gpsRouted&&!building){gpsRouted=true;mm("Starting route from your live location...");build(n,tgt,true)}
+ cur=n;$("mmsg").textContent="Live GPS is on.";
+ if(tgt&&!gpsRouted&&!building){gpsRouted=true;mm("Starting route from your live location...");build(n,tgt,true,true)}
  if(p.coords.speed!==null&&p.coords.speed>=0){S.spd=Math.round(p.coords.speed*3.6);$("spd").value=S.spd}
  if(map){if(!rm){rm=L.circleMarker(n,{radius:8,color:"#fff",weight:3,fillColor:"#0e5a7c",fillOpacity:1}).addTo(map);map.setView(n,14)}else rm.setLatLng(n)}
  upd();live();
@@ -256,10 +256,10 @@ $("mgps").onclick=function(){
  if(!navigator.geolocation){mm("GPS is not available on this device.");return}
  mm("Waiting for GPS...");
  gw=navigator.geolocation.watchPosition(onpos,function(){mm("Location blocked. Allow location and use an https link.");gw=null},{enableHighAccuracy:true,maximumAge:2000});
- $("mgps").textContent="Stop GPS";
+ $("mgps").textContent="Stop GPS";if(sm&&map){map.removeLayer(sm);sm=null}
  try{navigator.wakeLock.request("screen")}catch(e){}
 };
-var em=[],tgt=null,gpsRouted=false,building=false,lastRr=0;
+var em=[],sm=null,tgt=null,gpsRouted=false,building=false,lastRr=0;
 async function geo(q){var g=await (await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=in&q="+encodeURIComponent(q))).json();return g.length?[+g[0].lat,+g[0].lon]:null}
 $("tomap").onclick=function(){document.querySelector('[data-t="mapt"]').click()};
 async function pumpsFor(){
@@ -280,7 +280,7 @@ async function pumpsFor(){
  pumps.sort(function(a,b){return a.a-b.a});
  return true;
 }
-async function build(o,t,fit){
+async function build(o,t,fit,g){
  if(building)return;building=true;
  try{
   mm("Finding route...");
@@ -289,9 +289,9 @@ async function build(o,t,fit){
   route=r.routes[0].geometry.coordinates.map(function(c){return [c[1],c[0]]});
   cum=[0];for(var i=1;i<route.length;i++)cum.push(cum[i-1]+hv(route[i-1],route[i]));
   ri=0;if(rl)map.removeLayer(rl);rl=L.polyline(route,{weight:5,color:"#0e5a7c"}).addTo(map);
-  em.forEach(function(x){map.removeLayer(x)});
-  em=[L.circleMarker(route[0],{radius:9,color:"#fff",weight:3,fillColor:"#0e7c5a",fillOpacity:1}).bindPopup("Start").addTo(map),
-      L.circleMarker(route[route.length-1],{radius:9,color:"#fff",weight:3,fillColor:"#14212b",fillOpacity:1}).bindPopup("Destination").addTo(map)];
+  em.forEach(function(x){map.removeLayer(x)});if(sm){map.removeLayer(sm);sm=null}
+  em=[L.circleMarker(route[route.length-1],{radius:9,color:"#fff",weight:3,fillColor:"#14212b",fillOpacity:1}).bindPopup("Destination").addTo(map)];
+  if(!g&&gw===null)sm=L.circleMarker(route[0],{radius:9,color:"#fff",weight:3,fillColor:"#0e7c5a",fillOpacity:1}).bindPopup("Start").addTo(map);
   if(fit)map.fitBounds(rl.getBounds());
   $("dist").value=f1(cum[cum.length-1]/1000);upd();
   mm("Route is "+f1(cum[cum.length-1]/1000)+" km. Finding pumps...");
@@ -314,13 +314,13 @@ $("mgo").onclick=async function(){
   mm("Searching destination...");
   var t=await geo(q);if(!t){mm("Destination not found. Try a more specific name.");return}
   tgt=t;gpsRouted=!oq;
-  await build(o,t,true);
+  await build(o,t,true,!oq);
  }catch(err){mm("Network problem. Check internet and try again.")}
 };
 function live(){
  if(!route||!cur)return;
  var best=1e9;for(var i=ri;i<Math.min(route.length,ri+300);i++){var d=hv(cur,route[i]);if(d<best){best=d;ri=i}}
- if(best>400&&tgt&&!building&&Date.now()-lastRr>60000){lastRr=Date.now();mm("You left the route. Finding a new one...");build(cur,tgt,false);return}
+ if(best>400&&tgt&&!building&&Date.now()-lastRr>60000){lastRr=Date.now();mm("You left the route. Finding a new one...");build(cur,tgt,false,true);return}
  var done=cum[ri],left=(cum[cum.length-1]-done)/1000;
  var range=S.cap*S.lvl/100*eff()*sf(es()),safe=range*0.9;
  var ahead=pumps.filter(function(x){return x.a-done>50}),reach=ahead.filter(function(x){return (x.a-done)/1000<=safe});
