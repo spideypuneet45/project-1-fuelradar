@@ -44,8 +44,8 @@ td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
 
 <nav role="tablist">
 <button role="tab" data-t="setup" aria-selected="true">Vehicle</button>
-<button role="tab" data-t="trip" aria-selected="false">Trip</button>
 <button role="tab" data-t="tank" aria-selected="false">Tank</button>
+<button role="tab" data-t="trip" aria-selected="false">Trip</button>
 <button role="tab" data-t="mapt" aria-selected="false">Map</button>
 <button role="tab" data-t="log" aria-selected="false">Refuels</button>
 </nav>
@@ -95,7 +95,7 @@ td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
 <label for="lvl">Fuel in tank: <b id="lvlv"></b></label><input id="lvl" type="range" min="0" max="100" step="1">
 <div class="row">
 <div><label for="spd">Speed (km/h)</label><input id="spd" type="number" min="5" max="160" step="1"></div>
-<div><label for="np">Next pump in (km)</label><input id="np" type="number" min="0" step="0.5" placeholder="e.g. 35"></div>
+
 </div>
 <button class="btn alt" id="gps">Use live GPS speed</button>
 <p class="mute" id="gpsmsg" style="margin:6px 0 0"></p>
@@ -146,6 +146,7 @@ try{var raw=localStorage.getItem("fuelapp1");if(raw){S=Object.assign(S,JSON.pars
 function save(){try{localStorage.setItem("fuelapp1",JSON.stringify(S))}catch(e){}}
 var $=function(i){return document.getElementById(i)};
 function eff(){var m=parseFloat(S.mil);if(m>0)return m;var c=V[S.v][1];return c*0.8*Math.max(0.6,1-0.015*(S.age||0))}
+function es(){return S.spd>=5?Math.min(S.spd,160):40}
 function sf(s){return s<20?0.8:s<=60?1:s<=80?0.9:s<=100?0.8:0.7}
 function f1(n){return (Math.round(n*10)/10).toString()}
 function hm(h){var m=Math.round(h*60);return Math.floor(m/60)+" h "+(m%60)+" min"}
@@ -155,7 +156,8 @@ function fill(){$("veh").value=S.v;$("age").value=S.age;$("cap").value=S.cap;$("
 $("veh").onchange=function(){S.v=+this.value;S.cap=V[S.v][2];$("cap").value=S.cap;S.mil="";$("mil").value="";upd()};
 ["age","cap","mil","price","spd"].forEach(function(k){$(k).oninput=function(){S[k]=this.value===""?"":+this.value;upd()}});
 $("lvl").oninput=function(){S.lvl=+this.value;upd()};
-$("dist").oninput=upd;$("road").onchange=upd;$("np").oninput=upd;
+$("spd").onchange=function(){if(+this.value>160){this.value=160;S.spd=160;upd()}};
+$("dist").oninput=upd;$("road").onchange=upd;
 
 function upd(){
  var e=eff();
@@ -173,20 +175,17 @@ function upd(){
   else{st.className="status s-bad";st.textContent="You need about "+f1(L-have)+" L more. Refuel before you leave or on the way."}
  }else $("tripout").classList.add("hide");
  // tank
- var litres=S.cap*S.lvl/100,spd=Math.max(5,S.spd||40),range=litres*e*sf(spd);
+ var litres=S.cap*S.lvl/100,spd=es(),range=litres*e*sf(spd);
  $("lvlv").textContent=Math.round(S.lvl)+"% ("+f1(litres)+" L)";
  var full=S.cap*e,pct=Math.min(100,range/full*100);
  $("arc").setAttribute("stroke-dasharray",pct+" 100");
  $("arc").setAttribute("stroke",range<30?"var(--bad)":range<60?"var(--warn)":"var(--ok)");
  $("gl").textContent=Math.round(range);
  $("gt").textContent="About "+hm(range/spd)+" at "+Math.round(spd)+" km/h";
- var np=parseFloat($("np").value),ps=$("pstat");
- if(np>=0&&$("np").value!==""){
-  if(range<np){ps.className="status s-bad";ps.textContent="Warning: you will run dry before the next pump. Slow down or refuel at the nearest stop."}
-  else if(range<np*1.25+10){ps.className="status s-warn";ps.textContent="Tight. You can reach the next pump with little margin. Treat it as your last stop."}
-  else{ps.className="status s-ok";ps.textContent="You can reach the next pump with "+Math.round(range-np)+" km to spare."}
- }else if(range<30){ps.className="status s-bad";ps.textContent="Low fuel: under 30 km left. Refuel at the first pump you see."}
- else{ps.className="status s-ok";ps.textContent="Enter the distance to the next pump to get an alert."}
+ var ps=$("pstat");
+ if(range<30){ps.className="status s-bad";ps.textContent="Low fuel: under 30 km left. Refuel at the first pump you see."}
+ else if(range<60){ps.className="status s-warn";ps.textContent="Fuel is getting low: about "+Math.round(range)+" km left. Plan a refuel soon."}
+ else{ps.className="status s-ok";ps.textContent="Enough fuel for about "+Math.round(range)+" km."}
  save();
 }
 
@@ -241,7 +240,7 @@ function hv(a,b){var r=Math.PI/180,x=Math.sin((b[0]-a[0])*r/2),y=Math.sin((b[1]-
 function mm(t){$("mmsg").textContent=t}
 function onpos(p){
  var n=[p.coords.latitude,p.coords.longitude];
- if(cur){var d=hv(cur,n);if(d>8&&d<500){S.lvl=Math.max(0,S.lvl-d/1000/(eff()*sf(Math.max(5,S.spd||40)))/S.cap*100);$("lvl").value=Math.round(S.lvl)}}
+ if(cur){var d=hv(cur,n);if(d>8&&d<500){S.lvl=Math.max(0,S.lvl-d/1000/(eff()*sf(es()))/S.cap*100);$("lvl").value=Math.round(S.lvl)}}
  cur=n;
  if(p.coords.speed!==null&&p.coords.speed>=0){S.spd=Math.round(p.coords.speed*3.6);$("spd").value=S.spd}
  if(map){if(!rm){rm=L.circleMarker(n,{radius:8,color:"#fff",weight:3,fillColor:"#0e5a7c",fillOpacity:1}).addTo(map);map.setView(n,14)}else rm.setLatLng(n)}
@@ -289,7 +288,7 @@ function live(){
  if(!route||!cur)return;
  var best=1e9;for(var i=ri;i<Math.min(route.length,ri+300);i++){var d=hv(cur,route[i]);if(d<best){best=d;ri=i}}
  var done=cum[ri],left=(cum[cum.length-1]-done)/1000;
- var range=S.cap*S.lvl/100*eff()*sf(Math.max(5,S.spd||40)),safe=range*0.9;
+ var range=S.cap*S.lvl/100*eff()*sf(es()),safe=range*0.9;
  var ahead=pumps.filter(function(x){return x.a-done>50}),reach=ahead.filter(function(x){return (x.a-done)/1000<=safe});
  var lv,tx;
  if(left<=safe){lv="s-ok";tx="You can reach your destination. "+f1(left)+" km left, range "+Math.round(range)+" km."}
