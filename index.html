@@ -70,7 +70,12 @@ td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
 <section id="trip" class="hide">
 <div class="card">
 <h2>Trip fuel estimate</h2>
-<label for="dist">Distance A to B (km)</label><input id="dist" type="number" min="0" step="0.1" placeholder="e.g. 120">
+<label for="orig">Start from</label><input id="orig" placeholder="Leave empty to use my current location">
+<label for="dest">Destination</label><input id="dest" placeholder="e.g. Chandigarh bus stand">
+<button class="btn" id="mgo">Find route and pumps</button>
+<p class="mute" id="tmsg" style="margin:6px 0 0"></p>
+<button class="btn alt hide" id="tomap">View route on map</button>
+<label for="dist">Distance (km): filled in automatically, or type it</label><input id="dist" type="number" min="0" step="0.1" placeholder="e.g. 120">
 <label for="road">Road type</label>
 <select id="road"><option value="0.85">City traffic</option><option value="1" selected>Mixed</option><option value="1.05">Steady highway</option></select>
 <div id="tripout" class="hide">
@@ -106,10 +111,8 @@ td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
 <section id="mapt" class="hide"><div class="card"><h2>Route and pumps</h2>
 <div id="m" style="height:300px;border-radius:10px;z-index:0"></div>
 <button class="btn" id="mgps">Start live GPS</button>
-<label for="dest">Destination</label><input id="dest" placeholder="e.g. Chandigarh bus stand">
-<button class="btn alt" id="mgo">Find route and pumps</button>
 <p class="mute" id="mmsg"></p>
-<div class="status s-ok" id="mstat">Start GPS, then pick a destination.</div></div></section>
+<div class="status s-ok" id="mstat">Plan a trip in the Trip tab, then start live GPS here for alerts.</div></div></section>
 
 <section id="log" class="hide">
 <div class="card">
@@ -235,9 +238,9 @@ $("reset").onclick=function(){if(confirm("Clear all saved data?")){try{localStor
 // ---- map, route, pumps ----
 var map,rm,rl,route=null,cum=[],ri=0,cur=null,gw=null,pumps=[],lastLv="",lastSay=0,pm=[];
 function ini(){if(map||typeof L==="undefined")return;map=L.map("m").setView([30.9,75.85],11);L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map)}
-document.querySelector('[data-t="mapt"]').addEventListener("click",function(){ini();if(map)setTimeout(function(){map.invalidateSize()},60)});
+document.querySelector('[data-t="mapt"]').addEventListener("click",function(){ini();if(map)setTimeout(function(){map.invalidateSize();if(rl)map.fitBounds(rl.getBounds())},60)});
 function hv(a,b){var r=Math.PI/180,x=Math.sin((b[0]-a[0])*r/2),y=Math.sin((b[1]-a[1])*r/2);return 12742000*Math.asin(Math.sqrt(x*x+Math.cos(a[0]*r)*Math.cos(b[0]*r)*y*y))}
-function mm(t){$("mmsg").textContent=t}
+function mm(t){$("mmsg").textContent=t;$("tmsg").textContent=t}
 function onpos(p){
  var n=[p.coords.latitude,p.coords.longitude];
  if(cur){var d=hv(cur,n);if(d>8&&d<500){S.lvl=Math.max(0,S.lvl-d/1000/(eff()*sf(es()))/S.cap*100);$("lvl").value=Math.round(S.lvl)}}
@@ -255,20 +258,29 @@ $("mgps").onclick=function(){
  $("mgps").textContent="Stop GPS";
  try{navigator.wakeLock.request("screen")}catch(e){}
 };
+var em=[];
+async function geo(q){var g=await (await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=in&q="+encodeURIComponent(q))).json();return g.length?[+g[0].lat,+g[0].lon]:null}
+$("tomap").onclick=function(){document.querySelector('[data-t="mapt"]').click()};
 $("mgo").onclick=async function(){
- ini();var q=$("dest").value.trim();if(!q){mm("Type a destination first.");return}
- if(!cur){mm("Start live GPS first so I know where you are.");return}
+ ini();var q=$("dest").value.trim(),oq=$("orig").value.trim();
+ if(!q){mm("Type a destination first.");return}
  try{
-  mm("Searching place...");
-  var g=await (await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=in&q="+encodeURIComponent(q))).json();
-  if(!g.length){mm("Place not found. Try a more specific name.");return}
-  var t=[+g[0].lat,+g[0].lon];
+  var o=cur;
+  if(oq){mm("Searching start place...");o=await geo(oq);if(!o){mm("Start place not found. Try a more specific name.");return}}
+  else if(!o){mm("Getting your location...");o=await new Promise(function(r){navigator.geolocation.getCurrentPosition(function(p){r([p.coords.latitude,p.coords.longitude])},function(){r(null)},{enableHighAccuracy:true,timeout:15000})})}
+  if(!o){mm("Could not get your location. Type a start place instead.");return}
+  mm("Searching destination...");
+  var t=await geo(q);if(!t){mm("Destination not found. Try a more specific name.");return}
   mm("Finding route...");
-  var r=await (await fetch("https://router.project-osrm.org/route/v1/driving/"+cur[1]+","+cur[0]+";"+t[1]+","+t[0]+"?overview=full&geometries=geojson")).json();
+  var r=await (await fetch("https://router.project-osrm.org/route/v1/driving/"+o[1]+","+o[0]+";"+t[1]+","+t[0]+"?overview=full&geometries=geojson")).json();
   if(!r.routes||!r.routes.length){mm("No route found.");return}
   route=r.routes[0].geometry.coordinates.map(function(c){return [c[1],c[0]]});
   cum=[0];for(var i=1;i<route.length;i++)cum.push(cum[i-1]+hv(route[i-1],route[i]));
-  ri=0;if(rl)map.removeLayer(rl);rl=L.polyline(route,{weight:5,color:"#0e5a7c"}).addTo(map);map.fitBounds(rl.getBounds());
+  ri=0;if(rl)map.removeLayer(rl);rl=L.polyline(route,{weight:5,color:"#0e5a7c"}).addTo(map);
+  em.forEach(function(x){map.removeLayer(x)});
+  em=[L.circleMarker(route[0],{radius:9,color:"#fff",weight:3,fillColor:"#0e7c5a",fillOpacity:1}).bindPopup("Start").addTo(map),
+      L.circleMarker(route[route.length-1],{radius:9,color:"#fff",weight:3,fillColor:"#14212b",fillOpacity:1}).bindPopup("Destination").addTo(map)];
+  map.fitBounds(rl.getBounds());
   $("dist").value=f1(cum[cum.length-1]/1000);upd();
   mm("Route is "+f1(cum[cum.length-1]/1000)+" km. Finding pumps...");
   var s=90,w=190,n=-90,e=-190;route.forEach(function(p){s=Math.min(s,p[0]);n=Math.max(n,p[0]);w=Math.min(w,p[1]);e=Math.max(e,p[1])});
@@ -281,7 +293,7 @@ $("mgo").onclick=async function(){
    if(best<1500){var nm=(el.tags&&(el.tags.name||el.tags.brand))||"Petrol pump";pumps.push({p:pt,a:cum[bi],n:nm});
     pm.push(L.circleMarker(pt,{radius:6,color:"#c8372d",fillColor:"#c8372d",fillOpacity:.9}).bindPopup(nm).addTo(map))}});
   pumps.sort(function(a,b){return a.a-b.a});
-  mm(pumps.length+" pumps found along your route.");live();
+  mm("Route ready: "+pumps.length+" pumps found along the way.");$("tomap").classList.remove("hide");live();
  }catch(err){mm("Network problem. Check internet and try again.")}
 };
 function live(){
